@@ -1,0 +1,42 @@
+name: Pre-Prod Build, Push, Configuration
+
+on:
+  push:
+  workflow_dispatch:  # Allows manual trigger
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: "read"
+      id-token: "write"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/${PROJECT-ID}/locations/global/workloadIdentityPools/${POOL-NAME}/providers/${PROVIDER-NAME}
+          service_account: ${SERVICE-ACCOUNT}
+      - name: Build docker image
+        run: docker build -t ${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${TAG} .
+      - name: Push docker image to repository
+        run: |
+          gcloud auth configure-docker ${REGION}-docker.pkg.dev
+          docker push ${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${TAG}
+  configure-cr:
+    needs: build-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: "read"
+      id-token: "write"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/${PROJECT-ID}/locations/global/workloadIdentityPools/${POOL-NAME}/providers/${PROVIDER-NAME}
+          service_account: ${SERVICE-ACCOUNT}
+      - name: Configure Cloud run job with latest image
+        run: gcloud beta run jobs update ${CLOUD-RUN-JOB-ID} --image ${REGION}-docker.pkg.dev/${PROJECT-ID}/{ARTIFACT-REGISTRY-REPO-NAME}/${IMAGE-NAME}:${TAG} --region ${REGION}
